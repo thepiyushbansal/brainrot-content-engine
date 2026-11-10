@@ -1,0 +1,673 @@
+{
+  "name": "Brainrot reel: sheet row to MP4",
+  "nodes": [
+    {
+      "parameters": {
+        "fieldToSplitOut": "script.script",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        9440,
+        3744
+      ],
+      "id": "a5755019-48b1-4199-afba-ebc889eac01e",
+      "name": "Split Out1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = require('path');\nconst os = require('os');\n\nconst items = $input.all();\n\nconst outputDir = path.join(os.homedir(), 'remotion-video', 'public', 'audio');\nconst publicAudioBaseUrl = 'http://127.0.0.1:8080/audio';\n\nfs.mkdirSync(outputDir, { recursive: true });\n\nfunction getWavDuration(buffer, fallbackText) {\n  try {\n    if (!Buffer.isBuffer(buffer) || buffer.length < 44) {\n      return fallbackEstimate(fallbackText);\n    }\n\n    const riff = buffer.toString('ascii', 0, 4);\n    const wave = buffer.toString('ascii', 8, 12);\n\n    if (riff !== 'RIFF' || wave !== 'WAVE') {\n      return fallbackEstimate(fallbackText);\n    }\n\n    const sampleRate = buffer.readUInt32LE(24);\n    const channels = buffer.readUInt16LE(22);\n    const bitsPerSample = buffer.readUInt16LE(34);\n\n    if (!sampleRate || !channels || !bitsPerSample) {\n      return fallbackEstimate(fallbackText);\n    }\n\n    let offset = 36;\n\n    while (offset + 8 <= buffer.length) {\n      const chunkId = buffer.toString('ascii', offset, offset + 4);\n      const chunkSize = buffer.readUInt32LE(offset + 4);\n\n      if (chunkId === 'data') {\n        // Got the real duration from WAV header\n        return chunkSize / (sampleRate * channels * (bitsPerSample / 8));\n      }\n\n      // FIX 1: Handle odd-byte padding (WAV spec requirement)\n      offset += 8 + chunkSize + (chunkSize % 2);\n    }\n\n    return fallbackEstimate(fallbackText);\n  } catch (e) {\n    return fallbackEstimate(fallbackText);\n  }\n}\n\nfunction fallbackEstimate(text) {\n  // FIX 2: More generous estimate (15 chars/sec instead of 13) + 20% buffer\n  return Math.max(2.0, (String(text || '').length / 15) * 1.2);\n}\n\nconst scenes = [];\nconst postCaption = items[0]?.json?.postCaption || '';\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n\n  const binaryKeys = Object.keys(item.binary || {});\n  if (!binaryKeys.includes('data')) {\n    throw new Error(\n      `Item ${i} has no binary property named \"data\". Found: ${binaryKeys.join(', ') || 'none'}`\n    );\n  }\n\n  const actor = item.json.actor || 'unknown';\n  const text = item.json.text || '';\n\n  const safeActor = String(actor).replace(/[^a-zA-Z0-9_-]/g, '');\n  const filename = `${String(i).padStart(3, '0')}_${safeActor}_${Date.now()}.wav`;\n  const filepath = path.join(outputDir, filename);\n\n  const audioBuffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n\n  fs.writeFileSync(filepath, audioBuffer);\n\n  const durationSeconds = getWavDuration(audioBuffer, text);\n\n  // FIX 3: Always add 20 extra frames (0.67 sec) as a safety buffer\n  const durationInFrames = Math.ceil(durationSeconds * 30) + 5;\n\n  scenes.push({\n    actor,\n    text,\n    audioUrl: `${publicAudioBaseUrl}/${filename}`,\n    durationInFrames,\n  });\n}\n\nreturn [{ json: { scenes, postCaption } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9792,
+        3904
+      ],
+      "id": "7228071c-567f-49b6-8019-0037d6107647",
+      "name": "Save Audio + Compute Duration"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Randomly pick one background gameplay clip\nconst minecraftClips = [\n  // Your background clips (any public video links, e.g. Cloudinary). One is picked at random per reel.\n  'https://YOUR-CDN/clips/parkour-01.mp4',\n  'https://YOUR-CDN/clips/parkour-02.mp4',\n  'https://YOUR-CDN/clips/parkour-03.mp4',\n];\n\nconst randomClip = minecraftClips[Math.floor(Math.random() * minecraftClips.length)];\nconst scenes = $input.first().json.scenes;\nconst postCaption = $input.first().json.postCaption || '';\nreturn [{\n  json: {\n    scenes: scenes,\n    postCaption: postCaption,\n    backgroundVideoUrl: randomClip,\n    sImageUrl: 'https://YOUR-CDN/characters/s.png',\n    pImageUrl: 'https://YOUR-CDN/characters/p.png'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10000,
+        3904
+      ],
+      "id": "9b8f3668-41ea-45f9-9249-4de3f5912c56",
+      "name": "Pick Random Clip + Build Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3000/renders",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        10192,
+        3904
+      ],
+      "id": "634cbd35-8a11-4de6-b077-dfcfe41af7fb",
+      "name": "Send to Remotion"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://127.0.0.1:3000/renders/' + ($json.jobId || $json.id || $('Send to Remotion').item.json.jobId || $('Send to Remotion').item.json.id) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        10592,
+        3904
+      ],
+      "id": "a4d37d16-83dd-410c-9c8f-80ffe8388fd2",
+      "name": "Check Render Status"
+    },
+    {
+      "parameters": {
+        "jsCode": "const videoUrl = $json.videoUrl;\nconst jobId = $json.id;\n\nconst postCaption =\n  $('Pick Random Clip + Build Payload').first().json.postCaption || '';\n\nreturn [{\n  json: {\n    message: 'Video is ready!',\n    videoUrl: videoUrl,\n    localPath: `remotion-video/renders/${jobId}.mp4`,  // inside your home folder\n    jobId: jobId,\n    postCaption: postCaption,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11408,
+        3808
+      ],
+      "id": "f2f588d7-3ff0-4494-a343-c87a01de9933",
+      "name": "Video Ready"
+    },
+    {
+      "parameters": {
+        "amount": 100
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        11296,
+        3952
+      ],
+      "id": "ca03499e-dd51-45e9-9ab5-8d997fe987b9",
+      "name": "Wait + Retry"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/generate",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=text",
+              "value": "={{ $json.text }}"
+            },
+            {
+              "name": "actor",
+              "value": "={{ $json.actor }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 1200000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        9616,
+        3952
+      ],
+      "id": "1422ebd7-9ad6-4e98-b38f-8e9e7a3b97d3",
+      "name": "Generate TTS (Coqui)",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "id": "status-check-001"
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        11088,
+        3936
+      ],
+      "id": "8e01563f-3cd5-4ea5-9fa9-470504d7fc66",
+      "name": "Render Done?1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5c2890cc-64b3-4173-a915-1a7a81aef0a8",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        10800,
+        3904
+      ],
+      "id": "17052f3a-4a94-4098-a578-41bb4e5da8d0",
+      "name": "Render Failed?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "throw new Error(\n  'Remotion render failed: ' + JSON.stringify($json, null, 2)\n);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11024,
+        3792
+      ],
+      "id": "97e8b31f-2ce2-45ec-a3bf-c16d43da021c",
+      "name": "Render Failed Error"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        8752,
+        3856
+      ],
+      "id": "0121d0f9-31a7-46a3-b253-cfcb336728e2",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8960,
+        3824
+      ],
+      "id": "deb125d5-670d-4eec-9193-f1d6fa22fd7d",
+      "name": "Get row(s) in sheet"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a8b14d51-e959-4c0a-a2e8-a6a465fd4512",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ready",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        9152,
+        3808
+      ],
+      "id": "cfad8fdb-cd29-4c55-88df-3d4400c5b6a5",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json;\n\nif (!row.script_json) {\n  throw new Error('script_json is missing');\n}\n\nif (!row.postCaption) {\n  throw new Error('postCaption is missing');\n}\n\nlet scriptArray;\n\ntry {\n  scriptArray = JSON.parse(row.script_json);\n} catch (e) {\n  throw new Error('script_json is not valid JSON: ' + e.message);\n}\n\nif (!Array.isArray(scriptArray)) {\n  throw new Error('script_json must be a JSON array');\n}\n\nconst cleanedScript = scriptArray.map((item, index) => {\n  if (!item.actor || !item.text) {\n    throw new Error(`Invalid script item at index ${index}`);\n  }\n\n  const actor = String(item.actor).trim();\n  const text = String(item.text).replace(/\\n/g, ' ').trim();\n\n  if (!['S', 'P'].includes(actor)) {\n    throw new Error(`Invalid actor at index ${index}. Actor must be only S or P.`);\n  }\n\n  if (!text) {\n    throw new Error(`Empty text at index ${index}`);\n  }\n\n  return {\n    actor,\n    text,\n    postCaption: row.postCaption,\n    sourceRowId: row.id || '',\n    topic: row.topic || '',\n    row_number: row.row_number,\n  };\n});\n\nreturn [\n  {\n    json: {\n      script: {\n        script: cleanedScript,\n      },\n      postCaption: row.postCaption,\n      sourceRowId: row.id || '',\n      topic: row.topic || '',\n      row_number: row.row_number,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9312,
+        4144
+      ],
+      "id": "673ce07a-0947-49a3-8e74-0cb6af856cc7",
+      "name": "Prepare Manual Script"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        9072,
+        4032
+      ],
+      "id": "b5cb2cc3-69dc-47ab-9a55-d14e15ebeaa1",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "completed",
+            "jobId": "={{ $json.jobId }}",
+            "videoUrl": "={{ $json.videoUrl }}",
+            "processedAt": "={{ new Date().toISOString() }}",
+            "id": "={{ $('Prepare Manual Script').first().json.sourceRowId }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "script_json",
+              "displayName": "script_json",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postCaption",
+              "displayName": "postCaption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "videoUrl",
+              "displayName": "videoUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "jobId",
+              "displayName": "jobId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processedAt",
+              "displayName": "processedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        11616,
+        3808
+      ],
+      "id": "5340cbea-2289-4b02-9e30-fd0d324553a5",
+      "name": "Update row in sheet"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        10400,
+        3904
+      ],
+      "id": "6f718694-2036-49b8-ad93-7eb29c018c19",
+      "name": "Wait 50s"
+    }
+  ],
+  "connections": {
+    "Split Out1": {
+      "main": [
+        [
+          {
+            "node": "Generate TTS (Coqui)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Audio + Compute Duration": {
+      "main": [
+        [
+          {
+            "node": "Pick Random Clip + Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Random Clip + Build Payload": {
+      "main": [
+        [
+          {
+            "node": "Send to Remotion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Remotion": {
+      "main": [
+        [
+          {
+            "node": "Wait 50s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Render Status": {
+      "main": [
+        [
+          {
+            "node": "Render Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait + Retry": {
+      "main": [
+        [
+          {
+            "node": "Check Render Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TTS (Coqui)": {
+      "main": [
+        [
+          {
+            "node": "Save Audio + Compute Duration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Ready": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Failed?": {
+      "main": [
+        [
+          {
+            "node": "Render Failed Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Done?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Done?1": {
+      "main": [
+        [
+          {
+            "node": "Video Ready",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait + Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Failed Error": {
+      "main": [
+        []
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Manual Script": {
+      "main": [
+        [
+          {
+            "node": "Split Out1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Prepare Manual Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 50s": {
+      "main": [
+        [
+          {
+            "node": "Check Render Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  }
+}
