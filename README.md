@@ -5,6 +5,9 @@ explainer reel: two characters chatting in cloned voices over gameplay footage. 
 [Peter in Tech (@peterintech.ai)](https://www.instagram.com/peterintech.ai/), which rendered 11 reels,
 7 of them in under an hour.
 
+> **Status: V1.** This is the first working version, and V2 is in the works.
+> Ideas, [issues](https://github.com/thepiyushbansal/brainrot-content-engine/issues) and pull requests are welcome.
+
 ![The whole flow: writing, voices and visuals come together in Remotion](media/flow.jpg)
 
 [See a reel](https://www.instagram.com/reel/DZwqhuTNVKj/) ·
@@ -70,10 +73,11 @@ Then:
    `NODE_FUNCTION_ALLOW_BUILTIN=fs,path,os`.
 6. Add a row with status `ready` and click **Execute workflow**.
 
-## What I learned
+## What's next (V2)
 
-It worked, but it wasn't fully hands-off: topics and scripts still went in by hand, and every
-service ran on my laptop, so the laptop had to be on for a reel to get made. The channel is paused for now.
+V1 worked, but it wasn't fully hands-off: topics and scripts still went in by hand, and every
+service ran on my laptop, so the laptop had to be on for a reel to get made. V2 is about fixing exactly
+that, and the channel is on a break until it's ready.
 
 Use voices and characters you have the rights to.
 
