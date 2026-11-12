@@ -5,7 +5,7 @@ explainer reel: two characters chatting in cloned voices over gameplay footage. 
 [Peter in Tech (@peterintech.ai)](https://www.instagram.com/peterintech.ai/), which rendered 11 reels,
 7 of them in under an hour.
 
-> **Status: V1.** This is the first working version, and V2 is in the works.
+> **Status: V1.** This is the first working version. V2 is in progress.
 > Ideas, [issues](https://github.com/thepiyushbansal/brainrot-content-engine/issues) and pull requests are welcome.
 
 ![The whole flow: writing, voices and visuals come together in Remotion](media/flow.jpg)
@@ -76,8 +76,8 @@ Then:
 ## What's next (V2)
 
 V1 worked, but it wasn't fully hands-off: topics and scripts still went in by hand, and every
-service ran on my laptop, so the laptop had to be on for a reel to get made. V2 is about fixing exactly
-that, and the channel is on a break until it's ready.
+service ran on my laptop, so the laptop had to be on for a reel to get made. For V2, I'm exploring a
+pivot into a different sector, and still working it out. The channel is on a break until then.
 
 Use voices and characters you have the rights to.
 
